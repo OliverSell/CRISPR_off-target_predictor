@@ -17,7 +17,7 @@ class CrossSeqTransformer(nn.Module):
         self.pos_embed = nn.Embedding(max_len, d_model)
         self.transformer = nn.Transformer(
             d_model=d_model,
-            nhead=nhead,
+            nhead=nhead, # multihead attention
             num_encoder_layers=num_encoder_layers,
             num_decoder_layers=num_decoder_layers,
             dim_feedforward=4*d_model,
@@ -47,6 +47,13 @@ batch_size = 4
 seq_len = 24
 on_seq = torch.randint(0, 5, (batch_size, seq_len))
 off_seq = torch.randint(0, 5, (batch_size, seq_len))
+activity_scores = torch.rand(batch_size) #labels
 
-out = model(on_seq, off_seq)
+out = model(on_seq, off_seq) #prediction
 print(out.shape, out)
+
+# Training
+optimiser = torch.optim.AdamW(rnn.parameters(), lr=1e-3)
+criterion = nn.MSELoss()
+
+loss = criterion(out, activity_scores)
