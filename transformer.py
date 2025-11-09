@@ -14,7 +14,7 @@ class CrossSeqTransformer(nn.Module):
                  max_len=32, dropout=0.1):
         super().__init__()
         self.token_embed = nn.Embedding(vocab_size, d_model)
-        self.pos_embed = nn.Embedding(max_len, d_model)
+        self.pos_embed = nn.Embedding(max_len, d_model) # positional encoding
         self.transformer = nn.Transformer(
             d_model=d_model,
             nhead=nhead, # multihead attention
@@ -32,7 +32,7 @@ class CrossSeqTransformer(nn.Module):
 
     def forward(self, on_seq, off_seq):
         B, L = on_seq.shape
-        pos = torch.arange(L, device=on_seq.device).unsqueeze(0)
+        pos = torch.arange(L, device=on_seq.device).unsqueeze(0) # position indices
         src = self.token_embed(on_seq) + self.pos_embed(pos)
         tgt = self.token_embed(off_seq) + self.pos_embed(pos)
         # Transformer expects (batch, seq, dim)
@@ -45,15 +45,42 @@ class CrossSeqTransformer(nn.Module):
 model = CrossSeqTransformer()
 batch_size = 4
 seq_len = 24
-on_seq = torch.randint(0, 5, (batch_size, seq_len))
-off_seq = torch.randint(0, 5, (batch_size, seq_len))
-activity_scores = torch.rand(batch_size) #labels
+on_seq = torch.randint(0, 5, (batch_size, seq_len)) # target sequence
+off_seq = torch.randint(0, 5, (batch_size, seq_len)) # off-target sequence
+activity_scores = torch.rand(batch_size) # labels
 
-out = model(on_seq, off_seq) #prediction
+out = model(on_seq, off_seq) # predicted activity scores
 print(out.shape, out)
 
-# Training
-optimiser = torch.optim.AdamW(rnn.parameters(), lr=1e-3)
-criterion = nn.MSELoss()
+## -------- Training --------- ##
 
-loss = criterion(out, activity_scores)
+batch_size = 4 # weights updated per batch
+seq_len = 24
+num_batches = ?
+
+model = CrossSeqTransformer()
+criterion = nn.MSELoss()
+optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+
+## NOTE: 10 epochs for now
+for epoch in range(10):
+    epoch_loss = 0.0
+    for _ in range(num_batches):
+        on_seq = torch.randint(0, 5, (batch_size, seq_len))
+        off_seq = torch.randint(0, 5, (batch_size, seq_len))
+        activity_scores = torch.rand(batch_size)
+
+        # Forward pass
+        out = model(on_seq, off_seq)
+        loss = criterion(out, activity_scores)
+
+        # Backprop
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        epoch_loss += loss.item()
+
+    print(f"Epoch {epoch+1}: avg loss = {epoch_loss / num_batches:.4f}")
+
+print("Training complete")
