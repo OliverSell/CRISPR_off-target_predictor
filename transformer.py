@@ -14,7 +14,7 @@ from torch import nn
 class CrossSeqTransformer(nn.Module):
     def __init__(self, vocab_size=5, d_model=128, nhead=8,
                  num_encoder_layers=3, num_decoder_layers=3,
-                 max_len=32, dropout=0.1):
+                 max_len=32, dropout=0.1, dg_embedding_dim=16):
         super().__init__()
         
         # Token embeddings
@@ -32,11 +32,11 @@ class CrossSeqTransformer(nn.Module):
             batch_first=True
         )
 
-        # Feature projection layers
-        self.score_proj = nn.Linear(1, d_model // 4)
-        self.mismatch_proj = nn.Linear(1, d_model // 4)
+        # delta G embedding
+        self.dg_embed = nn.Linear(1, dg_embedding_dim)
 
         # Output regression head
+        combined_dim = d_model + dg_embedding_dim
         self.regressor = nn.Sequential(
             nn.Linear(d_model + d_model // 2, 256),
             nn.ReLU(),
@@ -48,7 +48,7 @@ class CrossSeqTransformer(nn.Module):
             nn.Sigmoid() # activity between 0 and 1
         )
 
-    def forward(self, on_seq, off_seq, score, mismatches):
+    def forward(self, on_seq, off_seq, delta_g):
         B, L = on_seq.shape
         device = on_seq.device
 
@@ -65,51 +65,52 @@ class CrossSeqTransformer(nn.Module):
         # Pooling
         pooled = out.mean(dim=1)
         
-        # Project features
-        score_emb = self.regressor(pooled)
-        mismatch_emb = self.mistmatch_proj(mismatches)
+        # delta G embedding
+        dg_emb = self.dg_embed(delta_g)
 
         # Concatenate all features
-        combined = torch.cat([pooled, score_emb, mismatch_emb], dim=1)
+        combined = torch.cat([pooled, dg_emb], dim=1)
 
         # Predict activity
-        activity = self.regressor(combined)
+        activity_pred = self.regressor(combined)
 
-        return activity.squeeze(-1)
+        return activity_pred.squeeze(-1)
     
+# ---------- Training example------------ #
 
 model = CrossSeqTransformer()
 batch_size = 32
-seq_len = 23
+seq_len = 24
+
+# Dummy input
 on_seq = torch.randint(0, 5, (batch_size, seq_len))
 off_seq = torch.randint(0, 5, (batch_size, seq_len))
-score = torch.rand(batch_size, 1)
-mismatches = torch.rand(batch_size, 1)
+delta_g = torch.rand(batch_size, 1)
+activity_scores = torch.rand(batch_size)
 
-out = model(on_seq, off_seq, score, mismatches)
+# Forward pass
+out = model(on_seq, off_seq, delta_g)
 print(f"Output shape: {out.shape}")
 print(f"Output range: [{out.min():.3f}, {out.max():.3f}]")
 
-## -------- Training --------- ##
-
-batch_size = 4 # weights updated per batch
-seq_len = 24
-num_batches = ?
+## -------- Training Loop --------- ##
 
 model = CrossSeqTransformer()
 criterion = nn.MSELoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 
-## NOTE: 10 epochs for now
+## NOTE: 10 epochs and batches for now
+num_batches = 10
 for epoch in range(10):
     epoch_loss = 0.0
     for _ in range(num_batches):
         on_seq = torch.randint(0, 5, (batch_size, seq_len))
         off_seq = torch.randint(0, 5, (batch_size, seq_len))
+        delta_g = torch.rand(batch_size, 1)
         activity_scores = torch.rand(batch_size)
 
         # Forward pass
-        out = model(on_seq, off_seq)
+        out = model(on_seq, off_seq, delta_g)
         loss = criterion(out, activity_scores)
 
         # Backprop
