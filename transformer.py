@@ -21,7 +21,7 @@ class CrossSeqTransformer(nn.Module):
         self.token_embed = nn.Embedding(vocab_size, d_model)
         self.pos_embed = nn.Embedding(max_len, d_model) # positional encoding
         
-        # Transformer (endocer-decoder)
+        # Transformer (encoder-decoder)
         self.transformer = nn.Transformer(
             d_model=d_model,
             nhead=nhead, # multihead attention
@@ -55,14 +55,14 @@ class CrossSeqTransformer(nn.Module):
         # Positional encoding
         pos = torch.arange(L, device=device).unsqueeze(0).expand(B,-1) # position indices
 
-        # Embed sequences
+        # Embed sequences for encoder-decoder architecture
         src = self.token_embed(on_seq) + self.pos_embed(pos)
         tgt = self.token_embed(off_seq) + self.pos_embed(pos)
 
         # Transformer expects (batch, seq, dim)
         out = self.transformer(src, tgt)  # shape [B, L, d_model]
         
-        # Pooling
+        # Mean pooling sequence length
         pooled = out.mean(dim=1)
         
         # delta G embedding
