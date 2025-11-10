@@ -13,8 +13,12 @@ class CrossSeqTransformer(nn.Module):
                  num_encoder_layers=3, num_decoder_layers=3,
                  max_len=32, dropout=0.1):
         super().__init__()
+        
+        # Token embeddings
         self.token_embed = nn.Embedding(vocab_size, d_model)
         self.pos_embed = nn.Embedding(max_len, d_model) # positional encoding
+        
+        # Transformer (endocer-decoder)
         self.transformer = nn.Transformer(
             d_model=d_model,
             nhead=nhead, # multihead attention
@@ -24,33 +28,64 @@ class CrossSeqTransformer(nn.Module):
             dropout=dropout,
             batch_first=True
         )
+
+        # Feature projection layers
+        self.score_proj = nn.Linear(1, d_model // 4)
+        self.mismatch_proj = nn.Linear(1, d_model // 4)
+
+        # Output regression head
         self.regressor = nn.Sequential(
-            nn.Linear(d_model, 128),
+            nn.Linear(d_model + d_model // 2, 256),
             nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(256, 128),
+            nn.ReLU(),
+            nn.Dropout(dropout),
             nn.Linear(128, 1)
+            nn.Sigmoid() # activity either 0 or 1
         )
 
-    def forward(self, on_seq, off_seq):
+    def forward(self, on_seq, off_seq, score, mismatches):
         B, L = on_seq.shape
-        pos = torch.arange(L, device=on_seq.device).unsqueeze(0) # position indices
+        device = on_seq.device
+
+        # Positional encoding
+        pos = torch.arange(L, device=device).unsqueeze(0).expand(B,-1) # position indices
+
+        # Embed sequences
         src = self.token_embed(on_seq) + self.pos_embed(pos)
         tgt = self.token_embed(off_seq) + self.pos_embed(pos)
+
         # Transformer expects (batch, seq, dim)
         out = self.transformer(src, tgt)  # shape [B, L, d_model]
+        
+        # Pooling
         pooled = out.mean(dim=1)
-        score = self.regressor(pooled)
-        return score.squeeze(-1)
+        
+        # Project features
+        score_emb = self.regressor(pooled)
+        mismatch_emb = self.mistmatch_proj(mismatches)
+
+        # Concatenate all features
+        combined = torch.cat([pooled, score_emb, mismatch_emb], dim=1)
+
+        # Predict activity
+        activity = self.regressor(combined)
+
+        return activity.squeeze(-1)
     
 
 model = CrossSeqTransformer()
-batch_size = 4
-seq_len = 24
-on_seq = torch.randint(0, 5, (batch_size, seq_len)) # target sequence
-off_seq = torch.randint(0, 5, (batch_size, seq_len)) # off-target sequence
-activity_scores = torch.rand(batch_size) # labels
+batch_size = 32
+seq_len = 23
+on_seq = torch.randint(0, 5, (batch_size, seq_len))
+off_seq = torch.randint(0, 5, (batch_size, seq_len))
+score = torch.rand(batch_size, 1)
+mismatches = torch.rand(batch_size, 1)
 
-out = model(on_seq, off_seq) # predicted activity scores
-print(out.shape, out)
+out = model(on_seq, off_seq, score, mismatches)
+print(f"Output shape: {out.shape}")
+print(f"Output range: [{out.min():.3f}, {out.max():.3f}]")
 
 ## -------- Training --------- ##
 
