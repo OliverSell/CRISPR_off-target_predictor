@@ -53,20 +53,30 @@ class CrossSeqTransformer(nn.Module):
         pos = torch.arange(L, device=device).unsqueeze(0).expand(B,-1) # position indices
 
         # Embed sequences
-        src = self.token_embed(on_seq) + self.pos_embed(pos)
-        tgt = self.token_embed(off_seq) + self.pos_embed(pos)
+        # encoder reads the target sequence and learns contextual embeddings
+        # decoder reads off-target sequences and does self-attention to learn within off-target sequences
+        # and cross-attention to encoder outputs to compare off-target w/target
+        src = self.token_embed(on_seq) + self.pos_embed(pos) # src is encoder input
+        tgt = self.token_embed(off_seq) + self.pos_embed(pos) # tgt is decoder input
 
         # Transformer expects (batch, seq, dim)
+        # nn.Transformer is a full encoder-decoder Transformer
+        # processes src (on_seq) through stacked encoder layers w/self-attention and FFNN, residual connections, layer norm
+        # processes tgt (off_seq) through stacked decoder layers w/self-attention, cross-attention, FFN, residual, layer norm
+        # transformers need per-token (nucleotides here) embeddings to compute attention
         out = self.transformer(src, tgt)  # shape [B, L, d_model]
         
         # Pooling
+        # averaging over sequence length to summarize off-target sequence into single vector representation
+        # pool to obtain single vector representing whole off-target sequence
         pooled = out.mean(dim=1)
         
-        # Project features
+        # Project features through FFNN
         score_emb = self.regressor(pooled)
         mismatch_emb = self.mistmatch_proj(mismatches)
 
         # Concatenate all features
+        # now each sample has representation of raw pooled transformer features, regressed activity features, mismatch features
         combined = torch.cat([pooled, score_emb, mismatch_emb], dim=1)
 
         # Predict activity
