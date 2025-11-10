@@ -45,7 +45,7 @@ class CrossSeqTransformer(nn.Module):
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.Linear(128, 1)
-            nn.Sigmoid() # activity either 0 or 1
+            nn.Sigmoid() # activity between 0 and 1
         )
 
     def forward(self, on_seq, off_seq, score, mismatches):
