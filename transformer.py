@@ -9,12 +9,12 @@ import torch
 from torch import nn
 
 
-### TO DO - need to add space for delta G vector ###
+### SCORE = CHANGEseq_reads = Activty
 
 class CrossSeqTransformer(nn.Module):
     def __init__(self, vocab_size=5, d_model=128, nhead=8,
                  num_encoder_layers=3, num_decoder_layers=3,
-                 max_len=32, dropout=0.1, dg_embedding_dim=16):
+                 max_len=32, dropout=0.1):
         super().__init__()
         
         # Token embeddings
@@ -23,7 +23,7 @@ class CrossSeqTransformer(nn.Module):
         
         # Transformer (endocer-decoder)
         self.transformer = nn.Transformer(
-            d_model=d_model, # embedding dimension, each token's vector representation
+            d_model=d_model,
             nhead=nhead, # multihead attention
             num_encoder_layers=num_encoder_layers,
             num_decoder_layers=num_decoder_layers,
@@ -32,9 +32,9 @@ class CrossSeqTransformer(nn.Module):
             batch_first=True
         )
 
-        # delta G embedding layer
-        self.dg_embed = nn.Linear(1, dg_embedding_dim)
-        combined_dim = d_model + dg_embedding_dim
+        # Feature projection layers
+        self.score_proj = nn.Linear(1, d_model // 4)
+        self.mismatch_proj = nn.Linear(1, d_model // 4)
 
         # Output regression head
         self.regressor = nn.Sequential(
@@ -45,10 +45,10 @@ class CrossSeqTransformer(nn.Module):
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.Linear(128, 1)
-            nn.Sigmoid() # activity either 0 or 1
+            nn.Sigmoid() # activity between 0 and 1
         )
 
-    def forward(self, on_seq, off_seq, delta_g):
+    def forward(self, on_seq, off_seq, score, mismatches):
         B, L = on_seq.shape
         device = on_seq.device
 
@@ -56,35 +56,26 @@ class CrossSeqTransformer(nn.Module):
         pos = torch.arange(L, device=device).unsqueeze(0).expand(B,-1) # position indices
 
         # Embed sequences
-        # encoder reads the target sequence and learns contextual embeddings
-        # decoder reads off-target sequences and does self-attention to learn within off-target sequences
-        # and cross-attention to encoder outputs to compare off-target w/target
-        src = self.token_embed(on_seq) + self.pos_embed(pos) # src is encoder input
-        tgt = self.token_embed(off_seq) + self.pos_embed(pos) # tgt is decoder input
+        src = self.token_embed(on_seq) + self.pos_embed(pos)
+        tgt = self.token_embed(off_seq) + self.pos_embed(pos)
 
         # Transformer expects (batch, seq, dim)
-        # nn.Transformer is a full encoder-decoder Transformer
-        # processes src (on_seq) through stacked encoder layers w/self-attention and FFNN, residual connections, layer norm
-        # processes tgt (off_seq) through stacked decoder layers w/self-attention, cross-attention, FFN, residual, layer norm
-        # transformers need per-token (nucleotides here) embeddings to compute attention
         out = self.transformer(src, tgt)  # shape [B, L, d_model]
         
         # Pooling
-        # averaging over sequence length to summarize off-target sequence into single vector representation
-        # pool to obtain single vector representing whole off-target sequence
         pooled = out.mean(dim=1)
         
-        # Project features through FFNN
-        dg_emb = self.dg_embed(delta_g)
+        # Project features
+        score_emb = self.regressor(pooled)
+        mismatch_emb = self.mistmatch_proj(mismatches)
 
         # Concatenate all features
-        # now each sample has representation of raw pooled transformer features, regressed activity features, mismatch features
-        combined = torch.cat([pooled, dg_emb], dim=1)
+        combined = torch.cat([pooled, score_emb, mismatch_emb], dim=1)
 
         # Predict activity
-        activity_pred = self.regressor(combined)
+        activity = self.regressor(combined)
 
-        return activity_pred.squeeze(-1)
+        return activity.squeeze(-1)
     
 
 model = CrossSeqTransformer()
@@ -92,10 +83,10 @@ batch_size = 32
 seq_len = 23
 on_seq = torch.randint(0, 5, (batch_size, seq_len))
 off_seq = torch.randint(0, 5, (batch_size, seq_len))
-delta_g = torch.rand(batch_size, 1)
+score = torch.rand(batch_size, 1)
+mismatches = torch.rand(batch_size, 1)
 
-out = model(on_seq, off_seq, delta_g)
-
+out = model(on_seq, off_seq, score, mismatches)
 print(f"Output shape: {out.shape}")
 print(f"Output range: [{out.min():.3f}, {out.max():.3f}]")
 
@@ -103,7 +94,7 @@ print(f"Output range: [{out.min():.3f}, {out.max():.3f}]")
 
 batch_size = 4 # weights updated per batch
 seq_len = 24
-num_batches = 10
+num_batches = ?
 
 model = CrossSeqTransformer()
 criterion = nn.MSELoss()
@@ -118,7 +109,7 @@ for epoch in range(10):
         activity_scores = torch.rand(batch_size)
 
         # Forward pass
-        out = model(on_seq, off_seq, delta_g)
+        out = model(on_seq, off_seq)
         loss = criterion(out, activity_scores)
 
         # Backprop

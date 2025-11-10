@@ -129,15 +129,23 @@ RI_REV_NT_MAP = {'-':'', 'a':'T', 'A':'T', 'c':'G', 'C':'G', 'g':'C', 'G':'C',
 
 # Paths
 infile = "data/41587_2020_555_MOESM3_ESM.xlsx"
+infile2 = "data/41587_2015_BFnbt3117_MOESM22_ESM.xlsx"
 outfile = "data/filtered_change_seq.csv"
 trainfile = "data/train_set.csv"
 valfile = "data/validation_set.csv"
 testfile = "data/test_set.csv"
+ext_testfile = "data/ext_test_set.csv"
+
 
 # Load Excel
 xls = pd.ExcelFile(infile)
 Raw = pd.read_excel(xls, "CHANGE-seq_Supp_Table_3")
 Specificities = pd.read_excel(xls, "CHANGE-seq_Supp_Table_4")
+
+xls = pd.ExcelFile(infile2)
+guide_seq = pd.read_excel(xls, "Sheet1")
+
+
 
 # Filtering
 Filtered = Raw.query('CHANGEseq_reads > 100')
@@ -146,8 +154,13 @@ Filtered = Filtered.drop(columns='Unnamed: 7')
 Filtered = Filtered.dropna()
 Filtered = Filtered[~Filtered.offtarget_sequence.str.contains('-')]
 Filtered = Filtered[Filtered.offtarget_sequence.apply(lambda x: len(str(x)))==23]
-
 changeseq = Filtered[["CHANGEseq_reads","offtarget_sequence","target"]]
+
+
+guide_seq.rename(columns={'GUIDE-Seq Reads' : 'GUIDEseq_Reads'}, inplace=True)
+guide_seq = guide_seq.query('GUIDEseq_Reads > 100')
+guide_seq = guide_seq[guide_seq.Offtarget_Sequence.apply(lambda x: len(str(x)))==23]
+guide_seq = guide_seq[["GUIDEseq_Reads","Offtarget_Sequence","Target_Sequence"]]
 
 # Score off-targets
 
@@ -164,9 +177,26 @@ for offtarget in changeseq.iloc:
 changeseq["DeltaGH"] = score_list
 changeseq["mismatches"] = mismatch_list
 
+score_list = list()
+mismatch_list = list()
+
+for offtarget in guide_seq.iloc:
+    off = offtarget["Offtarget_Sequence"]
+    on = offtarget["Target_Sequence"]
+    score = EnergyCalcLocal(off,on,POS_WGH[:-1])
+    score_list.append(score[2])
+    mismatch_list.append(score[4])
+    
+guide_seq["DeltaGH"] = score_list
+guide_seq["mismatches"] = mismatch_list
+
+
+
 os.makedirs(os.path.dirname(outfile), exist_ok=True)
 
 changeseq.to_csv(outfile, index=False)
+guide_seq.to_csv(ext_testfile, index=False)
+
 print(f"Filtered data saved to {outfile}")
 
 ontargets = changeseq.groupby("target")
@@ -208,6 +238,6 @@ training = changeseq[changeseq['target'].isin(training_list)]
 validation = changeseq[changeseq['target'].isin(validation_list)]
 test = changeseq[changeseq['target'].isin(test_list)]
 
-training.to_csv(outfile, index=False)
-validation.to_csv(outfile, index=False)
-test.to_csv(outfile, index=False)
+training.to_csv(trainfile, index=False)
+validation.to_csv(valfile, index=False)
+test.to_csv(testfile, index=False)
