@@ -16,7 +16,7 @@ class CrossSeqTransformer(nn.Module):
         self.token_embed = nn.Embedding(vocab_size, d_model)
         self.pos_embed = nn.Embedding(max_len, d_model) # positional encoding
         self.transformer = nn.Transformer(
-            d_model=d_model,
+            d_model=d_model, # embedding dimension, each token's vector representation
             nhead=nhead, # multihead attention
             num_encoder_layers=num_encoder_layers,
             num_decoder_layers=num_decoder_layers,
